@@ -36,7 +36,7 @@ class F1Score(tf.keras.metrics.Metric):
         self.recall.reset_states()
 
 model = tf.keras.models.load_model(
-    'my_deepfake_model_with_fine_tuning_24_03.keras',
+    'my_deepfake_model_with_fine_tuning_04_April_part2.keras',
     custom_objects={'F1Score': F1Score}
 )
 
