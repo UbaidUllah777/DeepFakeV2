@@ -1,0 +1,235 @@
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, session,flash
+from pymongo import MongoClient
+from werkzeug.security import check_password_hash
+from werkzeug.security import generate_password_hash
+from datetime import datetime
+import re
+import os
+import cv2
+import numpy as np
+import tensorflow as tf,keras
+from keras import backend as K
+
+K.clear_session()
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY') or 'dev-secret-key-123'  
+
+
+
+class F1Score(tf.keras.metrics.Metric):
+    def __init__(self, name='f1_score', **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.precision = tf.keras.metrics.Precision()
+        self.recall = tf.keras.metrics.Recall()
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        self.precision.update_state(y_true, y_pred)
+        self.recall.update_state(y_true, y_pred)
+
+    def result(self):
+        p = self.precision.result()
+        r = self.recall.result()
+        return 2 * ((p * r) / (p + r + K.epsilon()))
+
+    def reset_states(self):
+        self.precision.reset_states()
+        self.recall.reset_states()
+
+model = tf.keras.models.load_model(
+    'my_deepfake_model_with_fine_tuning_24_03.keras',
+    custom_objects={'F1Score': F1Score}
+)
+
+
+client = MongoClient("mongodb+srv://DeepUser:3wKcvCeSpGTCbKvG@deepseekcluster.smhorxp.mongodb.net/")
+db = client.get_database('DeepfakeDB')  
+
+
+app.config['UPLOAD_FOLDER'] = 'uploads/'
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
+
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+def preprocess_image(image_path, target_size=(224, 224)):
+    img = cv2.imread(image_path)
+    if img is None:
+        raise ValueError("Unable to read image")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img, target_size)
+    img = keras.applications.efficientnet.preprocess_input(img) 
+    img = np.expand_dims(img, axis=0)
+    return img
+
+@app.route('/', methods=['GET'])
+def index():
+    return render_template('index.html')
+
+from werkzeug.utils import secure_filename
+
+@app.route("/deepfake-checker", methods=['GET', 'POST'])
+def deepfake_checker():
+    if 'user_id' not in session:
+        flash('Please sign in to access the Deepfake Checker', 'error')
+        return redirect(url_for('signin'))
+
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            flash('No file uploaded', 'error')
+            return redirect(request.url)
+            
+        file = request.files['file']
+        if file.filename == '':
+            flash('No selected file', 'error')
+            return redirect(request.url)
+
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+
+            try:
+                # Preprocess and predict
+                input_image = preprocess_image(file_path)
+                prediction = model.predict(input_image)
+                confidence = prediction[0][0]
+                threshold = 0.6
+
+                # Determine result
+                if confidence >= threshold:
+                    result = 'Real'
+                    confidence_display = confidence
+                else:
+                    result = 'Fake'
+                    confidence_display = 1 - confidence
+
+                confidence_percent = f"{confidence_display * 100:.2f}%"
+
+
+                print("prediction",result)
+                print("confidence",confidence_percent)
+                print("filename",filename)
+
+                return render_template("deepfake_checker.html",
+                                      prediction=result,
+                                      confidence=confidence_percent,
+                                      filename=filename)
+
+            except Exception as e:
+                flash('Error processing image. Please try another file.', 'error')
+                app.logger.error(f"Error: {str(e)}")
+                return redirect(request.url)
+
+        else:
+            flash('Allowed file types: png, jpg, jpeg', 'error')
+            return redirect(request.url)
+
+    return render_template("deepfake_checker.html")
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route("/about")
+def about():
+    return render_template("about.html")
+
+@app.route("/contact")
+def contact():
+    return render_template("contact.html")
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+
+
+@app.route("/signup", methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        # Get form data
+        name = request.form.get('name')
+        email = request.form.get('email')
+        phone = request.form.get('phone')
+        password = request.form.get('password')
+
+        # Basic validation
+        if not all([name, email, phone, password]):
+            flash('All fields are required', 'error')
+            return render_template('signup.html')
+
+        # Phone validation
+        cleaned_phone = re.sub(r'\D', '', phone)
+        if not cleaned_phone.startswith('05') or len(cleaned_phone) != 10:
+            flash('Invalid UAE phone number format (05X-XXX-XXXX)', 'error')
+            return render_template('signup.html')
+
+        # Email validation
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+            flash('Invalid email address', 'error')
+            return render_template('signup.html')
+
+        # Check existing users
+        if db.users.find_one({'$or': [{'email': email}, {'phone': cleaned_phone}]}):
+            flash('Email or phone already registered', 'error')
+            return render_template('signup.html')
+
+        # Create new user
+        hashed_password = generate_password_hash(password)
+        new_user = {
+            'name': name,
+            'email': email,
+            'phone': cleaned_phone,
+            'password': hashed_password,
+            'created_at': datetime.now()
+        }
+
+        # Insert into database
+        try:
+            db.users.insert_one(new_user)
+            flash('Registration successful! Please sign in', 'success')
+            return redirect(url_for('signin'))
+        except Exception as e:
+            flash('Registration failed. Please try again.', 'error')
+            return render_template('signup.html')
+
+    return render_template("signup.html")
+
+
+@app.route("/signin", methods=['GET', 'POST'])
+def signin():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+
+        if not email or not password:
+            flash('Please fill all fields', 'error')
+            return render_template('signin.html')
+
+        user = db.users.find_one({'email': email})
+        
+        if user and check_password_hash(user['password'], password):
+            session['user_id'] = str(user['_id'])
+            flash('Signed in successfully', 'success')
+            return redirect(url_for('index'))
+        flash('Invalid credentials', 'error')
+        return render_template('signin.html')
+
+    return render_template("signin.html")
+
+@app.route("/logout")
+def logout():
+    session.pop('user_id', None)
+    flash('Logged out successfully', 'success')
+    return redirect(url_for("index"))
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)

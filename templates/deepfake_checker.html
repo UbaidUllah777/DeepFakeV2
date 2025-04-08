@@ -1,0 +1,54 @@
+<link rel="stylesheet" href="../static/css/uploadFile.css">
+
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container text-center">
+    <h1>Deepfake Checker</h1>
+    <p>Upload an image to check if it is real or fake</p>
+
+    {% if error %}
+    <div class="alert alert-danger">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <form action="/deepfake-checker" method="post" enctype="multipart/form-data" class="upload-form">
+        <div class="dropzone" id="dropzone">
+            <input type="file" name="file" id="fileInput" class="file-input" accept="image/*" required>
+            <div class="dropzone-content">
+                <span class="upload-icon">📁</span>
+                <p>Drag & Drop or Click to Upload</p>
+                <p class="file-name">No file selected</p>
+            </div>
+            <div class="preview-container" id="preview-container"></div>
+        </div>
+        <button type="submit" class="btn button-30 pt-2 px-5 my-5">Upload & Analyze</button>
+    </form>
+
+    {% if prediction %}
+    <div class="result mt-5">
+        <h2 class="result-header {% if prediction == 'Real' %}text-success{% else %}text-danger{% endif %}">
+            {{ prediction }} ({{ confidence }} Confidence)
+        </h2>
+        <div class="result-image mt-4">
+            <img src="{{ url_for('uploaded_file', filename=filename) }}" 
+                 alt="Analyzed Image" 
+                 class="img-thumbnail"
+                 style="max-width: 500px;">
+        </div>
+        <div class="result-explanation mt-4">
+            <p class="lead">
+                {% if prediction == 'Real' %}
+                This image appears authentic based on our analysis
+                {% else %}
+                Potential deepfake detected - proceed with caution
+                {% endif %}
+            </p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script src="{{ url_for('static', filename='js/dropzone.js') }}"></script>
+{% endblock %}
