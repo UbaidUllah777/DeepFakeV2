@@ -57,18 +57,7 @@
                 {% endif %}
             </p>
         </div>
-        {% if heatmap_filename %}
-<div class="heatmap-result mt-5">
-    <h3>Explanation Heatmap</h3>
-    <p>This heatmap highlights the areas of the image that most influenced the prediction.</p>
-    <div class="heatmap-image mt-4">
-        <img src="{{ url_for('uploaded_file', filename=heatmap_filename) }}" 
-             alt="GradCAM Heatmap" 
-             class="img-thumbnail"
-             style="max-width: 500px;">
-    </div>
-</div>
-{% endif %}
+
 
     </div>
     {% endif %}
