@@ -35,11 +35,37 @@ class F1Score(tf.keras.metrics.Metric):
         self.precision.reset_states()
         self.recall.reset_states()
 
-model = tf.keras.models.load_model(
-    'my_deepfake_model_with_fine_tuning_04_April_part2.keras',
-    custom_objects={'F1Score': F1Score}
+from tensorflow import keras
+
+# Load model without restoring the training configuration
+Loaded_model = keras.models.load_model(
+    'Google_Colab_my_deepfake_model_with_fine_tuning_04_April_part2.keras',
+    custom_objects={'F1Score': F1Score},
+    compile=False
 )
 
+def preprocess_image(image_path, target_size=(224, 224)):
+    img = cv2.imread(image_path)
+    if img is None:
+        raise FileNotFoundError(f"Error: Unable to load image at {image_path}")
+
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = cv2.resize(img, target_size)
+    img = img.astype('float32') / 255.0
+    img = np.expand_dims(img, axis=0)
+    return img
+
+image_path4 = 'uploads\Fake_00KEKJJ1Q4.jpg'
+input_image4 = preprocess_image(image_path4)
+prediction4 = Loaded_model.predict(input_image4)
+
+threshold = 0.6
+if prediction4[0][0] < threshold:
+    print("Manual Prediction: Fake")
+else:
+    print("Manual Prediction: Real")
+
+print(f"Manual Confidence Score: {prediction4[0][0]:.4f}")
 
 client = MongoClient("mongodb+srv://DeepUser:3wKcvCeSpGTCbKvG@deepseekcluster.smhorxp.mongodb.net/")
 db = client.get_database('DeepfakeDB')  
@@ -54,15 +80,7 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-def preprocess_image(image_path, target_size=(224, 224)):
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError("Unable to read image")
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, target_size)
-    img = keras.applications.efficientnet.preprocess_input(img) 
-    img = np.expand_dims(img, axis=0)
-    return img
+
 
 @app.route('/', methods=['GET'])
 def index():
@@ -93,8 +111,10 @@ def deepfake_checker():
 
             try:
                 # Preprocess and predict
+                
+                input_image= preprocess_image(file_path)
+                prediction= Loaded_model.predict(input_image)
                 input_image = preprocess_image(file_path)
-                prediction = model.predict(input_image)
                 confidence = prediction[0][0]
                 threshold = 0.6
 
