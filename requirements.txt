@@ -6,4 +6,3 @@ numpy
 tensorflow
 keras
 
-#comment this line to install the latest version of tensorflow
